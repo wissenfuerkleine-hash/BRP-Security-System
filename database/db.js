@@ -75,6 +75,16 @@ async function initDatabase() {
       )
     `);
 
+    // Create session table for connect-pg-simple
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS session (
+        sid varchar NOT NULL COLLATE "default",
+        sess json NOT NULL,
+        expire timestamp(6) NOT NULL
+      )
+    `);
+    await client.query('CREATE INDEX IF NOT EXISTS IDX_SESSION_EXPIRE ON session (expire)');
+
     console.log('Database initialized successfully');
   } finally {
     client.release();

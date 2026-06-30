@@ -2,6 +2,7 @@ const express = require('express');
 const session = require('express-session');
 const bcrypt = require('bcrypt');
 const { pool } = require('../database/db');
+const pgSession = require('connect-pg-simple')(session);
 require('dotenv').config();
 
 const app = express();
@@ -12,10 +13,17 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static('public'));
 app.use(session({
+  store: new pgSession({
+    pool: pool,
+    tableName: 'session'
+  }),
   secret: process.env.SESSION_SECRET || 'discord-security-secret',
   resave: false,
   saveUninitialized: false,
-  cookie: { secure: process.env.NODE_ENV === 'production' }
+  cookie: { 
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+  }
 }));
 
 // Store lockdown system reference (will be set by main bot)
