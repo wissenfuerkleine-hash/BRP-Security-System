@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, Partials } = require('discord.js');
+const { Client, GatewayIntentBits, Partials, SlashCommandBuilder, REST, Routes } = require('discord.js');
 const threatEngine = require('../threat/threatEngine');
 const AutoMod = require('../automod/automod');
 const LockdownSystem = require('../systems/lockdown');
@@ -38,7 +38,23 @@ class SecurityBot {
       this.logger = new SecurityLogger(this.client);
       await this.logger.init();
 
+      // Register slash commands
+      await this.registerCommands();
+
       console.log('Security systems initialized');
+    });
+
+    // Handle slash commands
+    this.client.on('interactionCreate', async (interaction) => {
+      if (!interaction.isChatInputCommand()) return;
+
+      const { commandName } = interaction;
+
+      if (commandName === 'lockdown') {
+        await this.handleLockdownCommand(interaction);
+      } else if (commandName === 'status') {
+        await this.handleStatusCommand(interaction);
+      }
     });
 
     this.client.on('messageCreate', async (message) => {
@@ -130,6 +146,84 @@ class SecurityBot {
 
   getLockdownSystem() {
     return this.lockdown;
+  }
+
+  async registerCommands() {
+    const commands = [
+      new SlashCommandBuilder()
+        .setName('lockdown')
+        .setDescription('Initiate lockdown (Security only)')
+        .addIntegerOption(option =>
+          option.setName('level')
+            .setDescription('Lockdown level (1-3)')
+            .setRequired(true)
+            .addChoices(
+              { name: 'Level 1', value: 1 },
+              { name: 'Level 2', value: 2 },
+              { name: 'Level 3', value: 3 }
+            ))
+        .addStringOption(option =>
+          option.setName('reason')
+            .setDescription('Reason for lockdown')
+            .setRequired(true)),
+      new SlashCommandBuilder()
+        .setName('status')
+        .setDescription('Check security status')
+    ].map(command => command.toJSON());
+
+    const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+
+    try {
+      console.log('Started refreshing application (/) commands.');
+      await rest.put(
+        Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
+        { body: commands }
+      );
+      console.log('Successfully reloaded application (/) commands.');
+    } catch (error) {
+      console.error('Error registering commands:', error);
+    }
+  }
+
+  async handleLockdownCommand(interaction) {
+    // Check if user has security role or is owner
+    const member = interaction.member;
+    const hasSecurityRole = member.roles.cache.has(process.env.SECURITY_ROLE_ID);
+    const isOwner = member.id === process.env.OWNER_ID;
+
+    if (!hasSecurityRole && !isOwner) {
+      return interaction.reply({ content: '❌ You do not have permission to use this command.', ephemeral: true });
+    }
+
+    const level = interaction.options.getInteger('level');
+    const reason = interaction.options.getString('reason');
+
+    if (this.lockdown.isActive()) {
+      return interaction.reply({ content: '❌ Lockdown is already active. Use the dashboard to unlock.', ephemeral: true });
+    }
+
+    await interaction.deferReply();
+
+    const incidentId = await this.lockdown.initiateLockdown(level, reason, interaction.user.id, 'MANUAL');
+    await this.logger.logLockdown(level, reason, interaction.user.id);
+
+    await interaction.editReply(`🚨 **LOCKDOWN INITIATED**\nLevel: ${level}\nReason: ${reason}\nIncident ID: ${incidentId}\n\n⚠️ Unlock is only available via the dashboard.`);
+  }
+
+  async handleStatusCommand(interaction) {
+    const status = this.lockdown.getLockdownStatus();
+    
+    if (status) {
+      await interaction.reply({
+        content: `🔒 **LOCKDOWN ACTIVE**\nLevel: ${status.level}\nReason: ${status.reason}\nInitiator: ${status.initiator}\nMode: ${status.mode}\n\n⚠️ Unlock via dashboard only.`,
+        ephemeral: true
+      });
+    } else {
+      await interaction.reply({
+        content: '✅ No active lockdown. System is normal.',
+        ephemeral: true
+      });
+    }
   }
 }
 

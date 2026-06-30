@@ -10,6 +10,12 @@ const server = dashboardApp.listen(PORT, '0.0.0.0', () => {
 // Try to start bot asynchronously
 setTimeout(async () => {
   try {
+    if (!process.env.DISCORD_TOKEN) {
+      console.log('DISCORD_TOKEN not set - bot will not start');
+      console.log('Dashboard continues running without bot');
+      return;
+    }
+
     const SecurityBot = require('./bot/bot');
     const RestoreManager = require('./systems/restore');
     

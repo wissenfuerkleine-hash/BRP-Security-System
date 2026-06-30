@@ -25,6 +25,13 @@ class RestoreManager {
     for (const channelData of data.channels) {
       const channel = await guild.channels.fetch(channelData.id).catch(() => null);
       if (channel) {
+        // Clear all existing permission overwrites first
+        const existingOverwrites = channel.permissionOverwrites.cache;
+        for (const [overwriteId, overwrite] of existingOverwrites) {
+          await overwrite.delete().catch(() => {});
+        }
+
+        // Restore snapshot overwrites exactly as they were
         for (const overwrite of channelData.permissionOverwrites) {
           await channel.permissionOverwrites.create(overwrite.id, {
             allow: overwrite.allow,

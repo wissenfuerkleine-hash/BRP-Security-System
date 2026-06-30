@@ -39,6 +39,11 @@ const requireAuth = (req, res, next) => {
   }
 };
 
+// Healthcheck endpoint for Railway
+app.get('/', (req, res) => {
+  res.status(200).json({ status: 'ok', message: 'Security Dashboard is running' });
+});
+
 // Routes
 app.get('/login', (req, res) => {
   res.send(`
@@ -376,8 +381,7 @@ app.post('/unlock', requireAuth, async (req, res) => {
   }
 
   await restoreManager.restoreFromSnapshot(status.id);
-  lockdownSystem.activeLockdown = null;
-  lockdownSystem.lockdownLevel = 0;
+  await lockdownSystem.endLockdown();
 
   res.json({ success: true, incidentId: status.id });
 });
