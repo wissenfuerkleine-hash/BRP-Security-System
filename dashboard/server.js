@@ -133,12 +133,22 @@ app.post('/login', async (req, res) => {
   if (password === process.env.DASHBOARD_PASSWORD) {
     req.session.authenticated = true;
     req.session.error = null;
-    console.log('✅ Login successful - redirecting to dashboard');
-    return res.redirect(303, '/dashboard');
+    
+    // Force session save before redirect
+    req.session.save((err) => {
+      if (err) {
+        console.error('Session save error:', err);
+        return res.send('ERROR: Session save failed');
+      }
+      console.log('✅ Session saved, redirecting to dashboard');
+      res.redirect(303, '/dashboard');
+    });
   } else {
     console.log('❌ Login failed - password mismatch');
     req.session.error = 'Invalid password';
-    return res.redirect(303, '/login');
+    req.session.save(() => {
+      res.redirect(303, '/login');
+    });
   }
 });
 
