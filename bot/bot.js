@@ -38,7 +38,7 @@ class SecurityBot {
       this.logger = new SecurityLogger(this.client);
       await this.logger.init();
 
-      // Register slash commands
+      // Register slash commands (Jetzt Global für alle Server!)
       await this.registerCommands();
 
       console.log('Security systems initialized');
@@ -174,20 +174,20 @@ class SecurityBot {
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
     try {
-      console.log('Started refreshing application (/) commands.');
+      console.log('Started refreshing GLOBAL application (/) commands.');
       
-      // Add timeout to prevent hanging
       const timeoutPromise = new Promise((_, reject) => 
         setTimeout(() => reject(new Error('Command registration timeout')), 10000)
       );
       
+      // ÄNDERUNG: Nutzt jetzt Routes.applicationCommands (ohne Guild ID) für globale Commands
       const registerPromise = rest.put(
-        Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
+        Routes.applicationCommands(process.env.CLIENT_ID),
         { body: commands }
       );
       
       await Promise.race([registerPromise, timeoutPromise]);
-      console.log('Successfully reloaded application (/) commands.');
+      console.log('Successfully reloaded GLOBAL application (/) commands.');
     } catch (error) {
       console.error('Error registering commands:', error.message);
       console.log('Continuing without slash commands...');
@@ -195,7 +195,6 @@ class SecurityBot {
   }
 
   async handleLockdownCommand(interaction) {
-    // Check if user has security role or is owner
     const member = interaction.member;
     const hasSecurityRole = member.roles.cache.has(process.env.SECURITY_ROLE_ID);
     const isOwner = member.id === process.env.OWNER_ID;
