@@ -32,9 +32,15 @@ app.setRestoreManager = (manager) => {
 
 // Authentication middleware
 const requireAuth = (req, res, next) => {
+  console.log('=== AUTH CHECK ===');
+  console.log('Session authenticated:', req.session.authenticated);
+  console.log('Session ID:', req.sessionID);
+  
   if (req.session.authenticated) {
+    console.log('✅ Auth passed');
     next();
   } else {
+    console.log('❌ Auth failed - redirecting to login');
     res.redirect('/login');
   }
 };
@@ -113,24 +119,26 @@ app.get('/login', (req, res) => {
 app.post('/login', async (req, res) => {
   const { password } = req.body;
   
-  console.log('Login attempt received');
+  console.log('=== LOGIN DEBUG ===');
+  console.log('Password received:', password ? 'YES' : 'NO');
+  console.log('Password length:', password ? password.length : 0);
+  console.log('Expected password set:', process.env.DASHBOARD_PASSWORD ? 'YES' : 'NO');
+  console.log('Expected password length:', process.env.DASHBOARD_PASSWORD ? process.env.DASHBOARD_PASSWORD.length : 0);
   
   if (!process.env.DASHBOARD_PASSWORD) {
     console.error('DASHBOARD_PASSWORD not set');
-    req.session.error = 'Server configuration error - password not set';
-    res.redirect('/login');
-    return;
+    return res.send('ERROR: DASHBOARD_PASSWORD not configured in Railway');
   }
   
   if (password === process.env.DASHBOARD_PASSWORD) {
     req.session.authenticated = true;
     req.session.error = null;
-    console.log('Login successful');
-    res.redirect('/dashboard');
+    console.log('✅ Login successful - redirecting to dashboard');
+    return res.redirect(303, '/dashboard');
   } else {
+    console.log('❌ Login failed - password mismatch');
     req.session.error = 'Invalid password';
-    console.log('Login failed - invalid password');
-    res.redirect('/login');
+    return res.redirect(303, '/login');
   }
 });
 
