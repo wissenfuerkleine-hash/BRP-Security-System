@@ -78,6 +78,7 @@ app.get('/login', (req, res) => {
           border-radius: 5px;
           background: #0f3460;
           color: #eee;
+          box-sizing: border-box;
         }
         button {
           width: 100%;
@@ -88,16 +89,18 @@ app.get('/login', (req, res) => {
           border-radius: 5px;
           cursor: pointer;
           font-size: 16px;
+          margin-top: 10px;
         }
         button:hover { background: #c73e54; }
-        .error { color: #ff6b6b; text-align: center; margin-top: 10px; }
+        .error { color: #ff6b6b; text-align: center; margin-top: 10px; padding: 10px; background: rgba(255,107,107,0.1); border-radius: 5px; }
+        .success { color: #00ff88; text-align: center; margin-top: 10px; }
       </style>
     </head>
     <body>
       <div class="login-box">
         <h2>🔒 Security Dashboard</h2>
-        <form method="POST" action="/login">
-          <input type="password" name="password" placeholder="Enter password" required>
+        <form method="POST" action="/login" autocomplete="off">
+          <input type="password" name="password" placeholder="Enter password" required autocomplete="new-password">
           <button type="submit">Login</button>
         </form>
         ${req.session.error ? '<div class="error">' + req.session.error + '</div>' : ''}
@@ -110,12 +113,23 @@ app.get('/login', (req, res) => {
 app.post('/login', async (req, res) => {
   const { password } = req.body;
   
+  console.log('Login attempt received');
+  
+  if (!process.env.DASHBOARD_PASSWORD) {
+    console.error('DASHBOARD_PASSWORD not set');
+    req.session.error = 'Server configuration error - password not set';
+    res.redirect('/login');
+    return;
+  }
+  
   if (password === process.env.DASHBOARD_PASSWORD) {
     req.session.authenticated = true;
     req.session.error = null;
+    console.log('Login successful');
     res.redirect('/dashboard');
   } else {
     req.session.error = 'Invalid password';
+    console.log('Login failed - invalid password');
     res.redirect('/login');
   }
 });
