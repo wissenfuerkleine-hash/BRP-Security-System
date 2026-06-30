@@ -24,6 +24,8 @@ class ThreatEngine {
   }
 
   getRoleTier(member) {
+    if (!member || !member.roles || !member.roles.cache) return 2;
+    
     const tier1Id = process.env.TIER_1_ROLE_ID;
     const tier2Id = process.env.TIER_2_ROLE_ID;
     const tier3Id = process.env.TIER_3_ROLE_ID;
@@ -55,14 +57,28 @@ class ThreatEngine {
 
     const totalScore = validEvents.reduce((sum, e) => sum + e.points, 0);
 
-    // Update database
-    await pool.query(
-      `INSERT INTO threat_scores (user_id, guild_id, score, role_tier, events, last_updated)
-       VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
-       ON CONFLICT (user_id) DO UPDATE SET
-         score = $3, role_tier = $4, events = $5, last_updated = CURRENT_TIMESTAMP`,
-      [userId, guildId, totalScore, roleTier, JSON.stringify(validEvents)]
-    );
+    // NEUE LOGIK: Repariert den ON CONFLICT Fehler direkt im Code
+    try {
+      // 1. Versuche zuerst, den bestehenden Eintrag des Users zu aktualisieren
+      const updateResult = await pool.query(
+        `UPDATE threat_scores 
+         SET score = $1, role_tier = $2, events = $3, last_updated = CURRENT_TIMESTAMP
+         WHERE user_id = $4`,
+        [totalScore, roleTier, JSON.stringify(validEvents), userId]
+      );
+
+      // 2. Wenn kein Eintrag existiert (rowCount === 0), erstelle ihn neu
+      if (updateResult.rowCount === 0) {
+        await pool.query(
+          `INSERT INTO threat_scores (user_id, guild_id, score, role_tier, events, last_updated)
+           VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)`,
+          [userId, guildId, totalScore, roleTier, JSON.stringify(validEvents)]
+        );
+      }
+    } catch (dbError) {
+      console.error('[ThreatEngine DB Error] Fehler beim Speichern abgefangen:', dbError.message);
+      // Fallback: Bot läuft trotzdem weiter, selbst wenn die DB mal blockiert
+    }
 
     return {
       score: totalScore,
