@@ -34,8 +34,8 @@ class RestoreManager {
         // Restore snapshot overwrites exactly as they were
         for (const overwrite of channelData.permissionOverwrites) {
           await channel.permissionOverwrites.create(overwrite.id, {
-            allow: overwrite.allow,
-            deny: overwrite.deny
+            allow: BigInt(overwrite.allow),
+            deny: BigInt(overwrite.deny)
           }).catch(() => {});
         }
       }
@@ -45,7 +45,7 @@ class RestoreManager {
     for (const roleData of data.roles) {
       const role = await guild.roles.fetch(roleData.id).catch(() => null);
       if (role) {
-        await role.setPermissions(roleData.permissions);
+        await role.setPermissions(BigInt(roleData.permissions));
         await role.setPosition(roleData.position);
       }
     }

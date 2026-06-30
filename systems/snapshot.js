@@ -18,8 +18,8 @@ class SnapshotManager {
         parentId: channel.parentId,
         permissionOverwrites: channel.permissionOverwrites.cache.map(po => ({
           id: po.id,
-          allow: po.allow.bitfield,
-          deny : po.deny.bitfield
+          allow: po.allow.bitfield.toString(),
+          deny : po.deny.bitfield.toString()
         }))
       });
     });
@@ -32,7 +32,7 @@ class SnapshotManager {
           name: role.name,
           color: role.color,
           hoist: role.hoist,
-          permissions: role.permissions.bitfield,
+          permissions: role.permissions.bitfield.toString(),
           position: role.position
         });
       }

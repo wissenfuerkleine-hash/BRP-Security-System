@@ -60,7 +60,8 @@ async function initDatabase() {
         score INTEGER DEFAULT 0,
         role_tier INTEGER DEFAULT 2,
         events JSONB,
-        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id)
       )
     `);
 

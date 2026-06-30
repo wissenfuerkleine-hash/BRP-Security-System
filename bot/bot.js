@@ -175,13 +175,22 @@ class SecurityBot {
 
     try {
       console.log('Started refreshing application (/) commands.');
-      await rest.put(
+      
+      // Add timeout to prevent hanging
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Command registration timeout')), 10000)
+      );
+      
+      const registerPromise = rest.put(
         Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
         { body: commands }
       );
+      
+      await Promise.race([registerPromise, timeoutPromise]);
       console.log('Successfully reloaded application (/) commands.');
     } catch (error) {
-      console.error('Error registering commands:', error);
+      console.error('Error registering commands:', error.message);
+      console.log('Continuing without slash commands...');
     }
   }
 
