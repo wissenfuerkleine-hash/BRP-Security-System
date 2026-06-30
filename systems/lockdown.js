@@ -113,26 +113,6 @@ class LockdownSystem {
   isActive() {
     return this.activeLockdown !== null;
   }
-
-  async endLockdown() {
-    if (!this.activeLockdown) {
-      console.log('No active lockdown to end');
-      return false;
-    }
-
-    const incidentId = this.activeLockdown.id;
-    this.activeLockdown = null;
-    this.lockdownLevel = 0;
-
-    // Update database
-    await pool.query(
-      'UPDATE incidents SET status = $1 WHERE incident_id = $2',
-      ['RESOLVED', incidentId]
-    );
-
-    console.log(`Lockdown ${incidentId} ended`);
-    return true;
-  }
 }
 
 module.exports = LockdownSystem;

@@ -376,7 +376,8 @@ app.post('/unlock', requireAuth, async (req, res) => {
   }
 
   await restoreManager.restoreFromSnapshot(status.id);
-  await lockdownSystem.endLockdown();
+  lockdownSystem.activeLockdown = null;
+  lockdownSystem.lockdownLevel = 0;
 
   res.json({ success: true, incidentId: status.id });
 });

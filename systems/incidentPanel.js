@@ -94,7 +94,7 @@ class IncidentPanel {
 
     // Update database
     await pool.query(
-      `UPDATE incidents SET system_status = COALESCE($2, system_status), recovery_status = COALESCE($3, recovery_status)
+      `UPDATE SET system_status = COALESCE($2, system_status), recovery_status = COALESCE($3, recovery_status)
        WHERE incident_id = $1`,
       [incidentId, updates.systemStatus, updates.recovery]
     );
