@@ -8,27 +8,34 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware
+// Middleware für JSON und Formulardaten
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static('public'));
 
+// NEU: Verhindert, dass der Browser die Seiten im Verlauf zwischenspeichert (Einbahnstraßen-Effekt)
+app.use((req, res, next) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  next();
+});
+
+// Session-Verwaltung mit PostgreSQL
 app.use(session({
   store: new pgSession({
     pool: pool,
     tableName: 'session',
-    createTableIfMissing: false // Wir verwalten die Tabelle lieber sauber manuell in der DB
+    createTableIfMissing: false
   }),
   secret: process.env.SESSION_SECRET || 'discord-security-secret',
   resave: false,
   saveUninitialized: false,
   cookie: { 
     secure: process.env.NODE_ENV === 'production',
-    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    maxAge: 24 * 60 * 60 * 1000 // 24 Stunden Gültigkeit
   }
 }));
 
-// Store lockdown system reference (will be set by main bot)
+// System-Referenzen (werden vom Hauptbot übergeben)
 let lockdownSystem = null;
 let restoreManager = null;
 
@@ -40,10 +47,10 @@ app.setRestoreManager = (manager) => {
   restoreManager = manager;
 };
 
-// Authentication middleware
+// Berechtigungs-Prüfung (Middleware)
 const requireAuth = (req, res, next) => {
   console.log('=== AUTH CHECK ===');
-  console.log('Session authenticated:', req.session ? req.session.authenticated : 'No Session Object');
+  console.log('Session authenticated:', req.session ? req.session.authenticated : 'No Session');
   console.log('Session ID:', req.sessionID);
   
   if (req.session && req.session.authenticated) {
@@ -55,13 +62,18 @@ const requireAuth = (req, res, next) => {
   }
 };
 
-// Healthcheck endpoint for Railway
+// Healthcheck für Railway
 app.get('/', (req, res) => {
   res.status(200).json({ status: 'ok', message: 'Security Dashboard is running' });
 });
 
-// Routes
+// Login-Seite (HTML)
 app.get('/login', (req, res) => {
+  // Wenn der User bereits eingeloggt ist, direkt zum Dashboard schicken
+  if (req.session && req.session.authenticated) {
+    return res.redirect('/dashboard');
+  }
+
   res.send(`
     <!DOCTYPE html>
     <html>
@@ -109,7 +121,6 @@ app.get('/login', (req, res) => {
         }
         button:hover { background: #c73e54; }
         .error { color: #ff6b6b; text-align: center; margin-top: 10px; padding: 10px; background: rgba(255,107,107,0.1); border-radius: 5px; }
-        .success { color: #00ff88; text-align: center; margin-top: 10px; }
       </style>
     </head>
     <body>
@@ -126,41 +137,36 @@ app.get('/login', (req, res) => {
   `);
 });
 
+// Login-Logik (Post)
 app.post('/login', async (req, res) => {
   const { password } = req.body;
   
   console.log('=== LOGIN DEBUG ===');
   console.log('Password received:', password ? 'YES' : 'NO');
-  console.log('Password length:', password ? password.length : 0);
-  console.log('Expected password set:', process.env.DASHBOARD_PASSWORD ? 'YES' : 'NO');
-  console.log('Expected password length:', process.env.DASHBOARD_PASSWORD ? process.env.DASHBOARD_PASSWORD.length : 0);
   
   if (!process.env.DASHBOARD_PASSWORD) {
-    console.error('DASHBOARD_PASSWORD not set');
+    console.error('DASHBOARD_PASSWORD missing in .env');
     return res.status(500).send('ERROR: DASHBOARD_PASSWORD not configured in Railway');
   }
   
   if (password === process.env.DASHBOARD_PASSWORD) {
     if (!req.session) {
-      console.error('Session-Store nicht bereit!');
-      return res.status(500).send('ERROR: Session store not initialized. check your database table.');
+      return res.status(500).send('ERROR: Session store not ready. Please fix postgres table.');
     }
 
     req.session.authenticated = true;
     req.session.error = null;
     
-    // Force session save before redirect
+    // Speichern erzwingen
     req.session.save((err) => {
       if (err) {
         console.error('Session save error caught:', err.message);
-        // Fallback: Wenn das Speichern in Postgres scheitert, leiten wir trotzdem weiter,
-        // damit du im Notfall nicht ausgesperrt wirst
       }
-      console.log('✅ Redirecting to dashboard');
+      console.log('✅ Login successful, redirecting...');
       return res.redirect(303, '/dashboard');
     });
   } else {
-    console.log('❌ Login failed - password mismatch');
+    console.log('❌ Password mismatch');
     if (req.session) {
       req.session.error = 'Invalid password';
       req.session.save(() => {
@@ -172,23 +178,28 @@ app.post('/login', async (req, res) => {
   }
 });
 
+// Logout-Route
 app.get('/logout', (req, res) => {
   if (req.session) {
-    req.session.authenticated = false;
+    req.session.destroy(() => {
+      res.redirect('/login');
+    });
+  } else {
+    res.redirect('/login');
   }
-  res.redirect('/login');
 });
 
+// Dashboard-Ansicht (Geschützt)
 app.get('/dashboard', requireAuth, async (req, res) => {
   const lockdownStatus = lockdownSystem ? lockdownSystem.getLockdownStatus() : null;
   
   try {
-    // Get recent incidents
+    // Vorfälle aus DB holen
     const incidentsResult = await pool.query(
       'SELECT * FROM incidents ORDER BY created_at DESC LIMIT 10'
     );
     
-    // Get recent logs
+    // Logs aus DB holen
     const logsResult = await pool.query(
       'SELECT * FROM security_logs ORDER BY created_at DESC LIMIT 20'
     );
@@ -263,7 +274,7 @@ app.get('/dashboard', requireAuth, async (req, res) => {
         <div class="container">
           <div class="header">
             <h1>🔒 Security Dashboard</h1>
-            <a href="/logout" style="color: #e94560; text-decoration: none;">Logout</a>
+            <a href="/logout" style="color: #e94560; text-decoration: none; font-weight: bold;">Logout</a>
           </div>
 
           <div class="status-box \${lockdownStatus ? 'status-active' : 'status-inactive'}">
@@ -296,7 +307,7 @@ app.get('/dashboard', requireAuth, async (req, res) => {
               </tr>
               \${incidentsResult.rows.map(inc => \`
                 <tr>
-                  <td><a href="/incident/\${inc.id}">\${inc.id}</a></td>
+                  <td><a href="/incident/\${inc.id}" style="color: #00ff88;">\${inc.id}</a></td>
                   <td>\${inc.status}</td>
                   <td class="level-\${inc.level}">\${inc.level}</td>
                   <td>\${inc.reason}</td>
@@ -345,10 +356,11 @@ app.get('/dashboard', requireAuth, async (req, res) => {
     `);
   } catch (err) {
     console.error('Dashboard Render Error:', err.message);
-    res.status(500).send('Internal Server Error while loading data: ' + err.message);
+    res.status(500).send('Internal Server Error: ' + err.message);
   }
 });
 
+// Einzelner Vorfall (Geschützt)
 app.get('/incident/:id', requireAuth, async (req, res) => {
   const { id } = req.params;
   try {
@@ -374,7 +386,7 @@ app.get('/incident/:id', requireAuth, async (req, res) => {
             padding: 20px;
           }
           .container { max-width: 1200px; margin: 0 auto; }
-          .back-link { color: #e94560; text-decoration: none; margin-bottom: 20px; display: block; }
+          .back-link { color: #e94560; text-decoration: none; margin-bottom: 20px; display: block; font-weight: bold; }
           .incident-box {
             background: #16213e;
             padding: 20px;
@@ -404,6 +416,7 @@ app.get('/incident/:id', requireAuth, async (req, res) => {
   }
 });
 
+// Panic-Knopf Route
 app.post('/panic', requireAuth, async (req, res) => {
   if (!lockdownSystem) {
     return res.status(500).json({ error: 'Lockdown system not available' });
@@ -413,6 +426,7 @@ app.post('/panic', requireAuth, async (req, res) => {
   res.json({ success: true, incidentId });
 });
 
+// Entsperren-Knopf Route
 app.post('/unlock', requireAuth, async (req, res) => {
   if (!lockdownSystem) {
     return res.status(500).json({ error: 'Systems not available' });
@@ -423,7 +437,7 @@ app.post('/unlock', requireAuth, async (req, res) => {
     return res.json({ success: true, message: 'No active lockdown' });
   }
 
-  // Setzt das Signal für den Hauptbot
+  // Setzt die Umgebungsvariable im laufenden Prozess und startet den Restore
   process.env.UNLOCK_SERVER = 'true';
   await lockdownSystem.checkUnlockSignal();
 
