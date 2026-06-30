@@ -22,12 +22,12 @@ app.setRestoreManager = (manager) => {
   restoreManager = manager;
 };
 
-// Die Hauptseite ist jetzt direkt das Dashboard
+// Die Hauptseite leitet direkt aufs Dashboard weiter
 app.get('/', async (req, res) => {
   res.redirect('/dashboard');
 });
 
-// Dashboard-Ansicht (Jetzt komplett ohne Passworteingabe frei zugänglich)
+// Dashboard-Ansicht
 app.get('/dashboard', async (req, res) => {
   const lockdownStatus = lockdownSystem ? lockdownSystem.getLockdownStatus() : null;
   
@@ -114,22 +114,22 @@ app.get('/dashboard', async (req, res) => {
             <h1>🔒 Security Dashboard (Public Test Mode)</h1>
           </div>
 
-          <div class="status-box \${lockdownStatus ? 'status-active' : 'status-inactive'}">
+          <div class="status-box ${lockdownStatus ? 'status-active' : 'status-inactive'}">
             <h2>Lockdown Status</h2>
-            \${lockdownStatus ? \`
+            ${lockdownStatus ? `
               <p><strong>Status:</strong> ACTIVE</p>
-              <p><strong>Incident ID:</strong> \${lockdownStatus.incidentId}</p>
-              <p><strong>Level:</strong> <span class="level-\${lockdownStatus.level}">\${lockdownStatus.level}</span></p>
-              <p><strong>Reason:</strong> \${lockdownStatus.reason}</p>
-              <p><strong>Initiator:</strong> \${lockdownStatus.initiator}</p>
+              <p><strong>Incident ID:</strong> ${lockdownStatus.incidentId}</p>
+              <p><strong>Level:</strong> <span class="level-${lockdownStatus.level}">${lockdownStatus.level}</span></p>
+              <p><strong>Reason:</strong> ${lockdownStatus.reason}</p>
+              <p><strong>Initiator:</strong> ${lockdownStatus.initiator}</p>
               <br>
               <button class="unlock-btn" onclick="unlockServer()">🔓 UNLOCK SERVER</button>
-            \` : \`
+            ` : `
               <p><strong>Status:</strong> NORMAL</p>
               <p>No active lockdown</p>
               <br>
               <button class="panic-btn" onclick="panicMode()">🚨 PANIC MODE</button>
-            \`}
+            `}
           </div>
 
           <div class="status-box">
@@ -142,15 +142,15 @@ app.get('/dashboard', async (req, res) => {
                 <th>Reason</th>
                 <th>Created</th>
               </tr>
-              \${incidentsResult.rows.map(inc => \`
+              ${incidentsResult.rows.map(inc => `
                 <tr>
-                  <td><a href="/incident/\${inc.id}" style="color: #00ff88;">\${inc.id}</a></td>
-                  <td>\${inc.status}</td>
-                  <td class="level-\${inc.level}">\${inc.level}</td>
-                  <td>\${inc.reason}</td>
-                  <td>\${new Date(inc.created_at).toLocaleString()}</td>
+                  <td><a href="/incident/${inc.id}" style="color: #00ff88;">${inc.id}</a></td>
+                  <td>${inc.status}</td>
+                  <td class="level-${inc.level}">${inc.level}</td>
+                  <td>${inc.reason}</td>
+                  <td>${new Date(inc.created_at).toLocaleString()}</td>
                 </tr>
-              \`).join('')}
+              `).join('')}
             </table>
           </div>
 
@@ -162,13 +162,13 @@ app.get('/dashboard', async (req, res) => {
                 <th>User ID</th>
                 <th>Timestamp</th>
               </tr>
-              \${logsResult.rows.map(log => \`
+              ${logsResult.rows.map(log => `
                 <tr>
-                  <td>\${log.event_type}</td>
-                  <td>\${log.user_id || 'N/A'}</td>
-                  <td>\${new Date(log.created_at).toLocaleString()}</td>
+                  <td>${log.event_type}</td>
+                  <td>${log.user_id || 'N/A'}</td>
+                  <td>${new Date(log.created_at).toLocaleString()}</td>
                 </tr>
-              \`).join('')}
+              `).join('')}
             </table>
           </div>
         </div>
@@ -184,7 +184,12 @@ app.get('/dashboard', async (req, res) => {
           function unlockServer() {
             if (confirm('Are you sure you want to UNLOCK the server? This will restore all permissions and end the lockdown.')) {
               fetch('/unlock', { method: 'POST' })
-                .then(() => location.reload());
+                .then(res => res.json())
+                .then(data => {
+                  alert(data.message || 'Signal gesendet!');
+                  location.reload();
+                })
+                .catch(err => alert('Fehler: ' + err));
             }
           }
         </script>
@@ -197,7 +202,7 @@ app.get('/dashboard', async (req, res) => {
   }
 });
 
-// Einzelner Vorfall (Frei zugänglich)
+// Einzelner Vorfall
 app.get('/incident/:id', async (req, res) => {
   const { id } = req.params;
   try {
@@ -213,7 +218,7 @@ app.get('/incident/:id', async (req, res) => {
       <!DOCTYPE html>
       <html>
       <head>
-        <title>Incident \${id}</title>
+        <title>Incident ${id}</title>
         <style>
           body {
             font-family: Arial, sans-serif;
@@ -237,12 +242,12 @@ app.get('/incident/:id', async (req, res) => {
           <a href="/dashboard" class="back-link">← Back to Dashboard</a>
           
           <div class="incident-box">
-            <h1>Incident \${incident.id}</h1>
-            <p><strong>Status:</strong> \${incident.status}</p>
-            <p><strong>Level:</strong> \${incident.level}</p>
-            <p><strong>Reason:</strong> \${incident.reason}</p>
-            <p><strong>Initiator:</strong> \${incident.initiator}</p>
-            <p><strong>Created:</strong> \${new Date(incident.created_at).toLocaleString()}</p>
+            <h1>Incident ${incident.id}</h1>
+            <p><strong>Status:</strong> ${incident.status}</p>
+            <p><strong>Level:</strong> ${incident.level}</p>
+            <p><strong>Reason:</strong> ${incident.reason}</p>
+            <p><strong>Initiator:</strong> ${incident.initiator}</p>
+            <p><strong>Created:</strong> ${new Date(incident.created_at).toLocaleString()}</p>
           </div>
         </div>
       </body>
@@ -256,28 +261,48 @@ app.get('/incident/:id', async (req, res) => {
 // Panic-Knopf Route
 app.post('/panic', async (req, res) => {
   if (!lockdownSystem) {
-    return res.status(500).json({ error: 'Lockdown system not available' });
+    return res.status(500).json({ error: 'Lockdown-System steht nicht zur Verfügung' });
   }
 
   const incidentId = await lockdownSystem.initiateLockdown(3, 'PANIC MODE triggered from Dashboard', 'DASHBOARD');
   res.json({ success: true, incidentId });
 });
 
-// Entsperren-Knopf Route
+// Entsperren-Knopf Route (Mit Direkt-Trigger für den Bot)
 app.post('/unlock', async (req, res) => {
   if (!lockdownSystem) {
-    return res.status(500).json({ error: 'Systems not available' });
+    return res.status(500).json({ error: 'Lockdown-System steht nicht zur Verfügung' });
   }
 
-  const status = lockdownSystem.getLockdownStatus();
-  if (!status) {
-    return res.json({ success: true, message: 'No active lockdown' });
+  try {
+    const status = lockdownSystem.getLockdownStatus();
+    let incidentId = status ? status.incidentId : null;
+    
+    // Fallback: In der DB nachsehen, falls im Cache nichts ist
+    if (!incidentId) {
+      const activeInc = await pool.query("SELECT id FROM incidents WHERE status = 'ACTIVE' LIMIT 1");
+      if (activeInc.rows.length > 0) {
+        incidentId = activeInc.rows[0].id;
+      }
+    }
+
+    console.log(`[Dashboard] Starte Entsperrung für Incident-ID: ${incidentId}`);
+
+    // Setze die Variable global im Node-Prozess um
+    process.env.UNLOCK_SERVER = 'true';
+
+    // Stoße die Recovery-Routine des Bots manuell an
+    if (typeof lockdownSystem.checkUnlockSignal === 'function') {
+      await lockdownSystem.checkUnlockSignal();
+    } else if (typeof lockdownSystem.endLockdown === 'function') {
+      await lockdownSystem.endLockdown();
+    }
+
+    res.json({ success: true, message: 'Unlock-Signal erfolgreich an Bot übermittelt!', incidentId });
+  } catch (err) {
+    console.error('[Dashboard] Fehler beim Ausführen des Unlocks:', err.message);
+    res.status(500).json({ error: err.message });
   }
-
-  process.env.UNLOCK_SERVER = 'true';
-  await lockdownSystem.checkUnlockSignal();
-
-  res.json({ success: true, incidentId: status.incidentId });
 });
 
 module.exports = app;
