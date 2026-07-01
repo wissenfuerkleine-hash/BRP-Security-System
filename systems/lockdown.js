@@ -9,12 +9,47 @@ class LockdownSystem {
     this.client = client;
     this.activeLockdown = null;
     this.lockdownLevel = 0;
+
+    // Starte die Überprüfung aus der Datenbank asynchron beim Booten
+    this.checkActiveLockdownFromDatabase();
+  }
+
+  // NEU: Lädt einen aktiven Lockdown nach einem Bot-Neustart automatisch aus der DB
+  async checkActiveLockdownFromDatabase() {
+    try {
+      // Warte kurz, bis der Client eingeloggt ist
+      if (!this.client.readyAt) {
+        await new Promise(resolve => this.client.once('ready', resolve));
+      }
+
+      const result = await pool.query(
+        "SELECT * FROM incidents WHERE status = 'ACTIVE' ORDER BY created_at DESC LIMIT 1"
+      );
+
+      if (result.rows.length > 0) {
+        const row = result.rows[0];
+        this.activeLockdown = {
+          id: row.incident_id,
+          level: parseInt(row.level),
+          reason: row.reason,
+          initiator: row.initiator,
+          mode: row.mode,
+          startTime: row.created_at
+        };
+        this.lockdownLevel = parseInt(row.level);
+        console.log(`[LockdownSystem] Aktiven Lockdown aus DB wiederhergestellt: ${row.incident_id}`);
+      } else {
+        console.log('[LockdownSystem] Kein aktiver Lockdown in der Datenbank gefunden.');
+      }
+    } catch (error) {
+      console.error('[LockdownSystem] Fehler beim Laden des DB-Status:', error.message);
+    }
   }
 
   async initiateLockdown(level, reason, initiator = 'AUTO', mode = 'AUTO') {
     if (this.activeLockdown) {
       console.log('Lockdown already active');
-      return null;
+      return this.activeLockdown.id; // ID zurückgeben, falls bereits aktiv
     }
 
     const guild = await this.client.guilds.fetch(process.env.GUILD_ID);
@@ -38,7 +73,11 @@ class LockdownSystem {
     await this.applyLockdownLevel(guild, level);
 
     // Create incident panel
-    await incidentPanel.create(guild, incidentId, level, reason, initiator, mode);
+    try {
+      await incidentPanel.create(guild, incidentId, level, reason, initiator, mode);
+    } catch (panelError) {
+      console.warn('Could not create incident panel:', panelError.message);
+    }
 
     // Log to database
     await pool.query(
@@ -47,6 +86,7 @@ class LockdownSystem {
       [incidentId, mode, level, reason, initiator, JSON.stringify([]), JSON.stringify({ lockdown: true, level })]
     );
 
+    console.log(`Lockdown ${incidentId} erfolgreich eingeleitet und in DB gespeichert.`);
     return incidentId;
   }
 
@@ -68,42 +108,50 @@ class LockdownSystem {
   }
 
   async applyLevel1(guild) {
-    // Close all text channels except mod/ticket
     const channels = guild.channels.cache.filter(c => c.isTextBased());
-    const allowedChannels = ['mod', 'ticket', 'admin', 'staff'];
+    const allowedChannels = ['mod', 'ticket', 'admin', 'staff', 'log'];
 
-    for (const channel of channels) {
-      const [_, ch] = channel;
+    for (const [_, ch] of channels) {
       if (!allowedChannels.some(name => ch.name.toLowerCase().includes(name))) {
-        await ch.permissionOverwrites.edit(guild.roles.everyone, {
-          [PermissionFlagsBits.SendMessages]: false
-        });
+        try {
+          await ch.permissionOverwrites.edit(guild.roles.everyone, {
+            [PermissionFlagsBits.SendMessages]: false
+          });
+        } catch (err) {
+          console.error(`Fehler bei Kanalsperrung (${ch.name}):`, err.message);
+        }
       }
     }
   }
 
   async applyLevel2(guild) {
-    // Close voice channels and block screen share
     const voiceChannels = guild.channels.cache.filter(c => c.isVoiceBased());
 
-    for (const channel of voiceChannels) {
-      const [_, ch] = channel;
-      await ch.permissionOverwrites.edit(guild.roles.everyone, {
-        [PermissionFlagsBits.Connect]: false,
-        [PermissionFlagsBits.Stream]: false
-      });
+    for (const [_, ch] of voiceChannels) {
+      try {
+        await ch.permissionOverwrites.edit(guild.roles.everyone, {
+          [PermissionFlagsBits.Connect]: false,
+          [PermissionFlagsBits.Stream]: false
+        });
+      } catch (err) {
+        console.error(`Fehler bei Voice-Sperrung (${ch.name}):`, err.message);
+      }
     }
   }
 
   async applyLevel3(guild) {
-    // Delete and block invites
-    const invites = await guild.invites.fetch();
-    for (const invite of invites.values()) {
-      await invite.delete('Lockdown Level 3');
+    try {
+      const invites = await guild.invites.fetch();
+      for (const invite of invites.values()) {
+        await invite.delete('Lockdown Level 3');
+      }
+    } catch (err) {
+      console.warn('Einladungen konnten nicht gelöscht werden:', err.message);
     }
 
-    // Enable permission freeze
-    await permissions.freezePermissions(guild);
+    if (permissions && typeof permissions.freezePermissions === 'function') {
+      await permissions.freezePermissions(guild);
+    }
   }
 
   async getLockdownStatus() {
@@ -126,8 +174,8 @@ class LockdownSystem {
 
     // Update database
     await pool.query(
-      'UPDATE incidents SET status = $1 WHERE incident_id = $2',
-      ['RESOLVED', incidentId]
+      "UPDATE incidents SET status = 'RESOLVED' WHERE incident_id = $1",
+      [incidentId]
     );
 
     console.log(`Lockdown ${incidentId} ended`);
