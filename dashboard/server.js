@@ -40,24 +40,19 @@ app.get('/dashboard', async (req, res) => {
     );
     
     // Logs aus DB holen
-    const logsResult = await pool.query(
-      'SELECT * FROM security_logs ORDER BY created_at DESC LIMIT 20'
-    );
-
-    // Prüfen, ob laut Datenbank ein aktiver Lockdown existiert (Sicherheits-Fallback)
-    const activeDbIncident = incidentsResult.rows.find(row => row.status === 'ACTIVE');
-
-    if (botStatus) {
+  // Wir vertrauen primär dem Bot. Nur wenn der Bot ACTIVE meldet, 
+    // oder die Daten vollständig sind, zeigen wir es an.
+    if (botStatus && botStatus.id) {
       lockdownStatus = {
-        incidentId: botStatus.id || botStatus.incidentId,
+        incidentId: botStatus.id,
         level: botStatus.level,
         reason: botStatus.reason,
         initiator: botStatus.initiator
       };
-    } else if (activeDbIncident) {
-      lockdownStatus = {
-        incidentId: activeDbIncident.incident_id,
-        level: activeDbIncident.level,
+    } else {
+      // Wenn der Bot sagt, es gibt keinen Lockdown, ist das Dashboard NORMAL.
+      lockdownStatus = null;
+    }
         reason: activeDbIncident.reason,
         initiator: activeDbIncident.initiator
       };
