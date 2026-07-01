@@ -29,8 +29,10 @@ app.get('/', async (req, res) => {
 
 // Dashboard-Ansicht
 app.get('/dashboard', async (req, res) => {
-  const lockdownStatus = lockdownSystem ? lockdownSystem.getLockdownStatus() : null;
-  
+  // Holt den Status vom Bot
+  const botStatus = lockdownSystem ? lockdownSystem.getLockdownStatus() : null;
+  let lockdownStatus = null;
+
   try {
     // Vorfälle aus DB holen
     const incidentsResult = await pool.query(
@@ -41,6 +43,26 @@ app.get('/dashboard', async (req, res) => {
     const logsResult = await pool.query(
       'SELECT * FROM security_logs ORDER BY created_at DESC LIMIT 20'
     );
+
+    // Prüfen, ob laut Datenbank ein aktiver Lockdown existiert (Sicherheits-Fallback)
+    const activeDbIncident = incidentsResult.rows.find(row => row.status === 'ACTIVE');
+
+    if (botStatus) {
+      lockdownStatus = {
+        incidentId: botStatus.id || botStatus.incidentId, // Akzeptiert beide Schreibweisen safely
+        level: botStatus.level,
+        reason: botStatus.reason,
+        initiator: botStatus.initiator
+      };
+    } else if (activeDbIncident) {
+      // Falls der Bot neugestartet wurde und den Cache verlor, füttert die DB das UI
+      lockdownStatus = {
+        incidentId: activeDbIncident.incident_id,
+        level: activeDbIncident.level,
+        reason: activeDbIncident.reason,
+        initiator: activeDbIncident.initiator
+      };
+    }
 
     res.send(`
       <!DOCTYPE html>
@@ -144,7 +166,7 @@ app.get('/dashboard', async (req, res) => {
               </tr>
               ${incidentsResult.rows.map(inc => `
                 <tr>
-                  <td><a href="/incident/${inc.id}" style="color: #00ff88;">${inc.id}</a></td>
+                  <td><a href="/incident/${inc.incident_id}" style="color: #00ff88;">${inc.incident_id}</a></td>
                   <td>${inc.status}</td>
                   <td class="level-${inc.level}">${inc.level}</td>
                   <td>${inc.reason}</td>
@@ -206,7 +228,7 @@ app.get('/dashboard', async (req, res) => {
 app.get('/incident/:id', async (req, res) => {
   const { id } = req.params;
   try {
-    const result = await pool.query('SELECT * FROM incidents WHERE id = $1', [id]);
+    const result = await pool.query('SELECT * FROM incidents WHERE incident_id = $1', [id]);
     
     if (result.rows.length === 0) {
       return res.send('Incident not found');
@@ -242,7 +264,7 @@ app.get('/incident/:id', async (req, res) => {
           <a href="/dashboard" class="back-link">← Back to Dashboard</a>
           
           <div class="incident-box">
-            <h1>Incident ${incident.id}</h1>
+            <h1>Incident ${incident.incident_id}</h1>
             <p><strong>Status:</strong> ${incident.status}</p>
             <p><strong>Level:</strong> ${incident.level}</p>
             <p><strong>Reason:</strong> ${incident.reason}</p>
@@ -264,45 +286,4 @@ app.post('/panic', async (req, res) => {
     return res.status(500).json({ error: 'Lockdown-System steht nicht zur Verfügung' });
   }
 
-  const incidentId = await lockdownSystem.initiateLockdown(3, 'PANIC MODE triggered from Dashboard', 'DASHBOARD');
-  res.json({ success: true, incidentId });
-});
-
-// Entsperren-Knopf Route (Mit Direkt-Trigger für den Bot)
-app.post('/unlock', async (req, res) => {
-  if (!lockdownSystem) {
-    return res.status(500).json({ error: 'Lockdown-System steht nicht zur Verfügung' });
-  }
-
-  try {
-    const status = lockdownSystem.getLockdownStatus();
-    let incidentId = status ? status.incidentId : null;
-    
-    // Fallback: In der DB nachsehen, falls im Cache nichts ist
-    if (!incidentId) {
-      const activeInc = await pool.query("SELECT id FROM incidents WHERE status = 'ACTIVE' LIMIT 1");
-      if (activeInc.rows.length > 0) {
-        incidentId = activeInc.rows[0].id;
-      }
-    }
-
-    console.log(`[Dashboard] Starte Entsperrung für Incident-ID: ${incidentId}`);
-
-    // Setze die Variable global im Node-Prozess um
-    process.env.UNLOCK_SERVER = 'true';
-
-    // Stoße die Recovery-Routine des Bots manuell an
-    if (typeof lockdownSystem.checkUnlockSignal === 'function') {
-      await lockdownSystem.checkUnlockSignal();
-    } else if (typeof lockdownSystem.endLockdown === 'function') {
-      await lockdownSystem.endLockdown();
-    }
-
-    res.json({ success: true, message: 'Unlock-Signal erfolgreich an Bot übermittelt!', incidentId });
-  } catch (err) {
-    console.error('[Dashboard] Fehler beim Ausführen des Unlocks:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-module.exports = app;
+  const incidentId = await lockdownSystem.initiateLockdown(
