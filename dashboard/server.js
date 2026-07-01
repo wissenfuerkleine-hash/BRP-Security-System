@@ -49,13 +49,12 @@ app.get('/dashboard', async (req, res) => {
 
     if (botStatus) {
       lockdownStatus = {
-        incidentId: botStatus.id || botStatus.incidentId, // Akzeptiert beide Schreibweisen safely
+        incidentId: botStatus.id || botStatus.incidentId,
         level: botStatus.level,
         reason: botStatus.reason,
         initiator: botStatus.initiator
       };
     } else if (activeDbIncident) {
-      // Falls der Bot neugestartet wurde und den Cache verlor, füttert die DB das UI
       lockdownStatus = {
         incidentId: activeDbIncident.incident_id,
         level: activeDbIncident.level,
@@ -286,4 +285,43 @@ app.post('/panic', async (req, res) => {
     return res.status(500).json({ error: 'Lockdown-System steht nicht zur Verfügung' });
   }
 
-  const incidentId = await lockdownSystem.initiateLockdown(
+  const incidentId = await lockdownSystem.initiateLockdown(3, 'PANIC MODE triggered from Dashboard', 'DASHBOARD');
+  res.json({ success: true, incidentId });
+});
+
+// Entsperren-Knopf Route
+app.post('/unlock', async (req, res) => {
+  if (!lockdownSystem) {
+    return res.status(500).json({ error: 'Lockdown-System steht nicht zur Verfügung' });
+  }
+
+  try {
+    const status = lockdownSystem.getLockdownStatus();
+    let incidentId = status ? (status.id || status.incidentId) : null;
+    
+    // Fallback: In der DB nachsehen
+    if (!incidentId) {
+      const activeInc = await pool.query("SELECT incident_id FROM incidents WHERE status = 'ACTIVE' LIMIT 1");
+      if (activeInc.rows.length > 0) {
+        incidentId = activeInc.rows[0].incident_id;
+      }
+    }
+
+    console.log(`[Dashboard] Starte Entsperrung für Incident-ID: ${incidentId}`);
+
+    process.env.UNLOCK_SERVER = 'true';
+
+    if (typeof lockdownSystem.checkUnlockSignal === 'function') {
+      await lockdownSystem.checkUnlockSignal();
+    } else if (typeof lockdownSystem.endLockdown === 'function') {
+      await lockdownSystem.endLockdown();
+    }
+
+    res.json({ success: true, message: 'Unlock-Signal erfolgreich an Bot übermittelt!', incidentId });
+  } catch (err) {
+    console.error('[Dashboard] Fehler beim Ausführen des Unlocks:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+module.exports = app;
